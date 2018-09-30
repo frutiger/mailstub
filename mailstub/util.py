@@ -4,8 +4,9 @@ import argparse
 import contextlib
 import imaplib
 import os
+from typing import Dict, Iterator, Sequence, Tuple, Union
 
-def parse_mbsyncrc(path='~/.mbsyncrc'):
+def parse_mbsyncrc(path: str = '~/.mbsyncrc') -> Dict[str, Dict[str, str]]:
     accounts = {}
     with open(os.path.expanduser(path)) as f:
         for line in f:
@@ -29,7 +30,7 @@ def parse_mbsyncrc(path='~/.mbsyncrc'):
                     break
     return accounts
 
-def parse_mailbox_args(flow):
+def parse_mailbox_args(flow: str, args: Sequence[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument('account')
     parser.add_argument('mailbox')
@@ -38,10 +39,11 @@ def parse_mailbox_args(flow):
     elif flow == 'sink':
         parser.add_argument('-n', '--no_action', action='store_true')
     parser.add_argument('args', nargs='*')
-    return parser.parse_args()
+    return parser.parse_args(args)
 
 @contextlib.contextmanager
-def open_mailbox(args, flow):
+def open_mailbox(args: argparse.Namespace, flow: str) -> \
+             Iterator[Union[imaplib.IMAP4_SSL, Tuple[imaplib.IMAP4_SSL, int]]]:
     account = parse_mbsyncrc()[args.account]
     session = imaplib.IMAP4_SSL(account['host'])
     session.login(account['user'], account['pass'])
@@ -61,7 +63,7 @@ def open_mailbox(args, flow):
     session.close()
     session.logout()
 
-def read(args, names):
+def read(args: argparse.Namespace, names: str) -> Iterator[str]:
     with open_mailbox(args, 'source') as (session, num_msgs):
         for item in session.fetch('1:{}'.format(num_msgs), names)[1]:
             yield item.decode('ascii')

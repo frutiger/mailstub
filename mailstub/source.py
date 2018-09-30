@@ -1,13 +1,17 @@
 # mailstub.source
 
+import argparse
 import collections
 import json
 import re
 import sys
+from typing import Dict, Iterator, Sequence, Set
 
 import mailstub.util
 
-def parse_labels(labels):
+State = Dict[int, Set[str]]
+
+def parse_labels(labels: Sequence[str]) -> Iterator[str]:
     label      = ''
     end_char   = ' '
     skip_next  = False
@@ -28,38 +32,47 @@ def parse_labels(labels):
             label += c
     yield label
 
-def valid_label(label):
-    return len(label) and label[0] != '"' and label[0] != '\\'
+def valid_label(label: str) -> bool:
+    if len(label) and label[0] != '"' and label[0] != '\\':
+        return True
+    else:
+        return False
 
-def flags(args):
+def flags(args: argparse.Namespace) -> State:
     pattern = re.compile('\d+ \(UID (\d+) FLAGS \((.*)\)\)')
 
-    result = collections.defaultdict(set)
+    result: State = collections.defaultdict(set)
     for data in mailstub.util.read(args, '(UID FLAGS)'):
         matches = pattern.match(data)
+        if matches is None:
+            raise RuntimeError(f'Failed to parse: {data}')
         uid, flags = matches.groups()
         result[int(uid)].update(flags.split())
     return result
 
-def gm_labels(args):
+def gm_labels(args: argparse.Namespace) -> State:
     pattern = re.compile('\d+ \(X-GM-LABELS \((.*)\) UID (\d+)\)')
 
-    result = collections.defaultdict(set)
+    result: State = collections.defaultdict(set)
     for data in mailstub.util.read(args, '(X-GM-LABELS UID)'):
         matches = pattern.match(data)
+        if matches is None:
+            raise RuntimeError(f'Failed to parse: {data}')
         labels, uid = matches.groups()
         result[int(uid)].update(filter(valid_label, parse_labels(labels)))
     return result
 
-def main():
-    mode = sys.argv.pop(1)
-    args = mailstub.util.parse_mailbox_args('source')
+def dispatch(argv: Sequence[str]) -> State:
+    mode = argv[0]
+    args = mailstub.util.parse_mailbox_args('source', argv[1:])
 
-    result = globals()[mode](args)
+    dispatcher = {
+        'flags':     flags,
+        'gm_labels': gm_labels,
+    }
 
-    output = { uid: list(values) for uid, values in result.items() }
-    json.dump(list(output.items()), sys.stdout)
+    if mode not in dispatcher:
+        raise RuntimeError(f'Unknown source: {mode}')
 
-if __name__ == '__main__':
-    main()
+    return dispatcher[mode](args)
 
